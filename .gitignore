@@ -1,0 +1,20 @@
+# Ambiente
+venv/
+.venv/
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+# Dados brutos (grandes / baixados manualmente, não versionar)
+data/raw/*
+!data/raw/.gitkeep
+
+# Modelos treinados
+*.pkl
+*.joblib
+
+# VSCode
+.vscode/
+
+# OS
+.DS_Store
