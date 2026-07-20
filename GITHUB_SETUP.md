@@ -3,7 +3,7 @@
 ## 1. Criar o repositório vazio no GitHub
 1. Acesse https://github.com e faça login.
 2. Clique em **New repository**.
-3. Nome sugerido: `projeto-transito-al` (ou outro nome descritivo).
+3. Nome sugerido: `triagem-doencas-oculares` (ou outro nome descritivo).
 4. Marque como **Public** (o professor precisa acompanhar).
 5. NÃO marque para criar README/gitignore automaticamente (já temos os nossos).
 6. Clique em **Create repository**.
@@ -12,12 +12,12 @@
 Dentro da pasta do projeto, no terminal do VSCode:
 
 ```bash
-cd projeto-transito-al
+cd triagem-doencas-oculares
 git init
 git add .
 git commit -m "Estrutura inicial do projeto"
 git branch -M main
-git remote add origin https://github.com/SEU-USUARIO/projeto-transito-al.git
+git remote add origin https://github.com/SEU-USUARIO/triagem-doencas-oculares.git
 git push -u origin main
 ```
 
@@ -26,7 +26,7 @@ git push -u origin main
 2. Clique em **Add people** e adicione o usuário GitHub dela.
 3. Ela deve clonar o repositório na máquina dela:
    ```bash
-   git clone https://github.com/SEU-USUARIO/projeto-transito-al.git
+   git clone https://github.com/SEU-USUARIO/triagem-doencas-oculares.git
    ```
 
 ## 4. Fluxo de trabalho recomendado (simples, para dois)

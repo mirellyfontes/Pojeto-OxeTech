@@ -1,81 +1,140 @@
 """
-Treino e avaliação dos modelos: baseline (regressão linear) e final (Random Forest).
+Treino do modelo de triagem de doenças oculares por imagem de retina.
 
-Rodar depois de gerar data/processed/frota_sinistros_al.csv com load_data.py
+Estratégia: transfer learning com MobileNetV2 pré-treinada na ImageNet
+(mesma abordagem usada na penúltima atividade do curso) — não treinamos uma
+CNN do zero porque o dataset (~4.200 imagens, 4 classes) é pequeno demais
+para isso convergir bem no tempo que temos.
 
-IMPORTANTE sobre vazamento de dados (um dos critérios da rubrica):
-Como esses dados são uma SÉRIE TEMPORAL (um valor por mês), não dá pra usar
-train_test_split embaralhando aleatoriamente — isso deixaria meses do futuro
-no treino e meses do passado no teste, o que é vazamento de dados. Por isso
-aqui separamos treino/teste em ordem cronológica: treina com os meses mais
-antigos, testa com os mais recentes.
+Duas etapas:
+  1) "Feature extraction": a MobileNetV2 fica congelada (pesos da ImageNet)
+     e só treinamos uma cabeça de classificação nova em cima dela.
+  2) "Fine-tuning": descongelamos as últimas camadas da MobileNetV2 e
+     re-treinamos tudo com uma taxa de aprendizado bem baixa, para adaptar
+     os filtros mais "específicos" da rede ao domínio de imagens de retina.
+
+Rodar depois de baixar o dataset em data/raw/dataset/ (ver src/load_data.py):
+    python src/model.py
 """
 
-import pandas as pd
-import numpy as np
-import joblib
+import json
 from pathlib import Path
-from sklearn.linear_model import LinearRegression
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
-PROCESSED_DIR = Path(__file__).resolve().parent.parent / "data" / "processed"
+import numpy as np
+import tensorflow as tf
+from sklearn.metrics import classification_report, confusion_matrix
+
+from load_data import carregar_datasets, IMG_SIZE
+
 MODELS_DIR = Path(__file__).resolve().parent.parent / "api"
 
-COLUNA_ALVO = "total_sinistros"
-COLUNAS_FEATURES = ["mes_num", "total_do_estado", "total_de_motos", "automovel"]
+EPOCHS_CABECA = 10          # etapa 1: só a cabeça nova, base congelada
+EPOCHS_FINE_TUNING = 5      # etapa 2: descongelando as últimas camadas
+CAMADAS_DESCONGELADAS = 30  # quantas camadas finais da MobileNetV2 liberar
+LR_CABECA = 1e-3
+LR_FINE_TUNING = 1e-5       # bem menor, para não "destruir" os pesos da ImageNet
 
-# Proporção dos meses mais recentes usada como teste (ex: 0.2 = últimos 20%)
-PROPORCAO_TESTE = 0.2
+
+def preparar_pipeline(ds, treino: bool):
+    """Aplica normalização (preprocess_input da MobileNetV2) e, só no
+    treino, data augmentation leve — para o modelo não decorar as ~1000
+    imagens de cada classe e generalizar melhor para fotos de retina
+    tiradas com outros aparelhos/condições de luz."""
+    normalizacao = tf.keras.applications.mobilenet_v2.preprocess_input
+
+    aumento = tf.keras.Sequential([
+        tf.keras.layers.RandomFlip("horizontal"),
+        tf.keras.layers.RandomRotation(0.05),
+        tf.keras.layers.RandomZoom(0.1),
+        tf.keras.layers.RandomContrast(0.1),
+    ])
+
+    ds = ds.map(lambda x, y: (normalizacao(x), y), num_parallel_calls=tf.data.AUTOTUNE)
+    if treino:
+        ds = ds.map(lambda x, y: (aumento(x, training=True), y), num_parallel_calls=tf.data.AUTOTUNE)
+        ds = ds.shuffle(500)
+    return ds.prefetch(tf.data.AUTOTUNE)
 
 
-def avaliar(y_true, y_pred, nome_modelo: str):
-    mae = mean_absolute_error(y_true, y_pred)
-    rmse = np.sqrt(mean_squared_error(y_true, y_pred))
-    r2 = r2_score(y_true, y_pred)
-    print(f"[{nome_modelo}] MAE={mae:.2f} | RMSE={rmse:.2f} | R2={r2:.3f}")
-    return {"modelo": nome_modelo, "mae": mae, "rmse": rmse, "r2": r2}
+def construir_modelo(num_classes: int) -> tuple[tf.keras.Model, tf.keras.Model]:
+    """Monta o modelo completo (base MobileNetV2 congelada + cabeça nova).
+    Retorna o modelo e a referência à base, para descongelar depois no
+    fine-tuning."""
+    base = tf.keras.applications.MobileNetV2(
+        input_shape=IMG_SIZE + (3,),
+        include_top=False,
+        weights="imagenet",
+    )
+    base.trainable = False  # etapa 1: base congelada
+
+    entradas = tf.keras.Input(shape=IMG_SIZE + (3,))
+    x = base(entradas, training=False)
+    x = tf.keras.layers.GlobalAveragePooling2D()(x)
+    x = tf.keras.layers.Dropout(0.3)(x)
+    x = tf.keras.layers.Dense(128, activation="relu")(x)
+    x = tf.keras.layers.Dropout(0.2)(x)
+    saidas = tf.keras.layers.Dense(num_classes, activation="softmax")(x)
+
+    modelo = tf.keras.Model(entradas, saidas)
+    return modelo, base
+
+
+def avaliar(modelo, ds_teste, class_names):
+    y_true, y_pred = [], []
+    for imagens, rotulos in ds_teste:
+        probs = modelo.predict(imagens, verbose=0)
+        y_pred.extend(np.argmax(probs, axis=1))
+        y_true.extend(rotulos.numpy())
+
+    print("\n=== Relatório de classificação (conjunto de teste) ===")
+    print(classification_report(y_true, y_pred, target_names=class_names, digits=3))
+    print("=== Matriz de confusão ===")
+    print(confusion_matrix(y_true, y_pred))
 
 
 def main():
-    df = pd.read_csv(PROCESSED_DIR / "frota_sinistros_al.csv")
-    df = df.sort_values(["Ano", "mes_num"]).dropna(subset=[COLUNA_ALVO] + COLUNAS_FEATURES)
+    treino_ds, val_ds, teste_ds, class_names = carregar_datasets()
+    print(f"Classes: {class_names}")
 
-    print(f"Total de meses com dado completo (frota + sinistros): {len(df)}")
-    if len(df) < 20:
-        print(
-            "[aviso] amostra pequena (menos de 20 meses) — os resultados servem "
-            "para o exercício, mas comentem essa limitação no relatório."
-        )
+    treino_ds = preparar_pipeline(treino_ds, treino=True)
+    val_ds = preparar_pipeline(val_ds, treino=False)
+    teste_ds = preparar_pipeline(teste_ds, treino=False)
 
-    corte = int(len(df) * (1 - PROPORCAO_TESTE))
-    treino, teste = df.iloc[:corte], df.iloc[corte:]
-    print(
-        f"Treino: {treino['Ano'].min()}-{treino['mes_num'].min():02d} até "
-        f"{treino['Ano'].max()}-{treino['mes_num'].max():02d} ({len(treino)} meses)"
+    modelo, base = construir_modelo(num_classes=len(class_names))
+
+    # --- Etapa 1: treinar só a cabeça (base congelada) ---
+    modelo.compile(
+        optimizer=tf.keras.optimizers.Adam(LR_CABECA),
+        loss="sparse_categorical_crossentropy",
+        metrics=["accuracy"],
     )
-    print(
-        f"Teste:  {teste['Ano'].min()}-{teste['mes_num'].min():02d} até "
-        f"{teste['Ano'].max()}-{teste['mes_num'].max():02d} ({len(teste)} meses)"
+    print("\n--- Etapa 1: treinando a cabeça de classificação (base congelada) ---")
+    modelo.fit(treino_ds, validation_data=val_ds, epochs=EPOCHS_CABECA)
+
+    # --- Etapa 2: fine-tuning das últimas camadas da MobileNetV2 ---
+    base.trainable = True
+    for camada in base.layers[:-CAMADAS_DESCONGELADAS]:
+        camada.trainable = False
+
+    modelo.compile(
+        optimizer=tf.keras.optimizers.Adam(LR_FINE_TUNING),
+        loss="sparse_categorical_crossentropy",
+        metrics=["accuracy"],
     )
+    print(f"\n--- Etapa 2: fine-tuning das últimas {CAMADAS_DESCONGELADAS} camadas ---")
+    modelo.fit(treino_ds, validation_data=val_ds, epochs=EPOCHS_FINE_TUNING)
 
-    X_train, y_train = treino[COLUNAS_FEATURES], treino[COLUNA_ALVO]
-    X_test, y_test = teste[COLUNAS_FEATURES], teste[COLUNA_ALVO]
+    # --- Avaliação final no conjunto de teste (nunca visto até aqui) ---
+    avaliar(modelo, teste_ds, class_names)
 
-    # --- Baseline ---
-    baseline = LinearRegression()
-    baseline.fit(X_train, y_train)
-    avaliar(y_test, baseline.predict(X_test), "Baseline (Regressão Linear)")
-
-    # --- Modelo final ---
-    modelo_final = RandomForestRegressor(n_estimators=300, random_state=42)
-    modelo_final.fit(X_train, y_train)
-    avaliar(y_test, modelo_final.predict(X_test), "Modelo Final (Random Forest)")
-
-    # Salvar o modelo final para a API usar
+    # --- Salvar modelo + nomes das classes para a API usar ---
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
-    joblib.dump(modelo_final, MODELS_DIR / "modelo_final.pkl")
-    print(f"Modelo salvo em: {MODELS_DIR / 'modelo_final.pkl'}")
+    caminho_modelo = MODELS_DIR / "modelo_final.keras"
+    modelo.save(caminho_modelo)
+    with open(MODELS_DIR / "class_names.json", "w", encoding="utf-8") as f:
+        json.dump(class_names, f, ensure_ascii=False, indent=2)
+    print(f"\nModelo salvo em: {caminho_modelo}")
+    print(f"Classes salvas em: {MODELS_DIR / 'class_names.json'}")
 
 
 if __name__ == "__main__":

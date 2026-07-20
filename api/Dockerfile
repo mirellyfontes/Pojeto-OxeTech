@@ -6,7 +6,8 @@ COPY api/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY api/main.py .
-COPY api/modelo_final.pkl .
+COPY api/modelo_final.keras .
+COPY api/class_names.json .
 
 EXPOSE 8000
 

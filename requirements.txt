@@ -1,9 +1,8 @@
 pandas
 numpy
-scikit-learn
 matplotlib
 seaborn
-shap
+scikit-learn
+tensorflow
+pillow
 jupyter
-joblib
-openpyxl
