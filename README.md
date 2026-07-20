@@ -122,5 +122,5 @@ docker run -p 8000:8000 triagem-ocular-api
 
 ## 5. Autoria
 
-Grupo: [nome 1], [nome 2]
+Grupo: Mirelly Fontes, Wanessa Costa.
 Curso: OxeTech Academy — IA e Aprendizado de Máquina
