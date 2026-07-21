@@ -76,10 +76,15 @@ Pojeto OxeTech/
 │   │   └── dataset/    # imagens baixadas do Kaggle (NÃO versionar no git)
 │   └── processed/      # eventuais artefatos derivados (ex: csv de contagem)
 ├── notebooks/
-│   └── 01_eda_baseline.ipynb
+│   ├── 01_eda_baseline.ipynb    # análise exploratória (contagem por classe, exemplos)
+│   ├── 01_eda_baseline.py       # mesma EDA, em script Python puro (sem Jupyter)
+│   ├── 02_treino_modelo.ipynb   # treino interativo do modelo (MobileNetV2 + fine-tuning), com aviso de não-diagnóstico
+│   └── 02_treino_modelo.py      # mesmo treino, em script Python puro (sem Jupyter)
 ├── src/
 │   ├── load_data.py    # carrega as imagens em tf.data.Dataset (treino/val/teste)
 │   └── model.py         # transfer learning com MobileNetV2 + fine-tuning
+├── tests/
+│   └── test_load_data.py   # testes automatizados do carregamento de dados (pytest)
 ├── api/
 │   ├── main.py          # API FastAPI (upload de imagem -> predição)
 │   ├── Dockerfile
@@ -106,6 +111,10 @@ python src/load_data.py
 
 # 5. Treinar o modelo (salva em api/modelo_final.keras + api/class_names.json)
 python src/model.py
+# alternativas equivalentes:
+#   python notebooks/02_treino_modelo.py         (script .py, roda no terminal, sem Jupyter)
+#   notebooks/02_treino_modelo.ipynb no VSCode    (interativo, com gráficos e a
+#                                                   predição de exemplo célula a célula)
 
 # 6. Rodar a API localmente
 uvicorn api.main:app --reload
@@ -120,7 +129,31 @@ docker build -f api/Dockerfile -t triagem-ocular-api .
 docker run -p 8000:8000 triagem-ocular-api
 ```
 
+### Rodar os testes automatizados
+
+```bash
+pytest tests/
+```
+
+(os testes de `tests/test_load_data.py` checam se `data/raw/dataset/` existe e
+está com as pastas de classe — rodem depois de baixar o dataset, ver seção 2)
+
+### Abrir o notebook de EDA no VSCode
+
+O notebook (`notebooks/01_eda_baseline.ipynb`) é 100% Python — se o VSCode
+oferecer para criar/selecionar um kernel de **SQL** (ou qualquer coisa que não
+seja Python) ao abrir, é só trocar manualmente:
+
+1. Ative o `venv` do projeto (`source venv/bin/activate` ou `venv\Scripts\activate`)
+   e garanta que o `ipykernel` está instalado (`pip install -r requirements.txt`
+   já inclui isso).
+2. No notebook aberto no VSCode, clique no seletor de kernel no canto superior
+   direito e escolha o **Python 3 do `venv` do projeto**.
+3. Se o kernel Python não aparecer na lista, reinicie o VSCode depois de
+   instalar o `ipykernel`, ou rode `python -m ipykernel install --user
+   --name=triagem-ocular` dentro do `venv` ativado.
+
 ## 5. Autoria
 
-Grupo: Mirelly Fontes, Wanessa Costa.
+Grupo: Mirelly Fontes, Wanessa Costa
 Curso: OxeTech Academy — IA e Aprendizado de Máquina

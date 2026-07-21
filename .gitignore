@@ -16,6 +16,10 @@ data/raw/dataset/*
 *.joblib
 api/class_names.json
 
+# Gráficos gerados automaticamente pelo notebook de treino (reproduzíveis, não precisam ir pro git)
+docs/curva_etapa_*.png
+docs/matriz_confusao.png
+
 # VSCode
 .vscode/
 

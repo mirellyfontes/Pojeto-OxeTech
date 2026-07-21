@@ -6,3 +6,5 @@ scikit-learn
 tensorflow
 pillow
 jupyter
+ipykernel
+pytest
