@@ -21,6 +21,8 @@ Como usar:
 
 from pathlib import Path
 import tensorflow as tf
+from sklearn.model_selection import train_test_split
+
 
 RAW_DIR = Path(__file__).resolve().parent.parent / "data" / "raw"
 DATASET_DIR = RAW_DIR / "dataset"
@@ -32,10 +34,9 @@ BATCH_SIZE = 32
 # Sementes fixas para os splits serem reprodutíveis entre quem rodar o código
 SEED = 42
 
-# Proporção usada para separar validação+teste do treino (o restante, 80%,
-# fica para treino). A metade de "validation_split" vira validação e a
-# outra metade vira teste (ver `carregar_datasets`).
-VALIDATION_SPLIT = 0.30
+# Divisão reprodutível: 70% treino, 15% validação e 15% teste
+TRAIN_SIZE = 0.70
+EXTENSOES = {".jpg", ".jpeg", ".png"}
 
 
 def checar_dataset_baixado():
@@ -56,18 +57,80 @@ def contar_imagens_por_classe() -> dict:
     e para checar se o dataset está mesmo balanceado como a documentação do
     Kaggle promete."""
     checar_dataset_baixado()
-    extensoes = {".jpg", ".jpeg", ".png"}
     contagem = {}
     for pasta_classe in sorted(p for p in DATASET_DIR.iterdir() if p.is_dir()):
-        n = sum(1 for f in pasta_classe.iterdir() if f.suffix.lower() in extensoes)
+        n = sum(1 for f in pasta_classe.iterdir() if f.is_file() and f.suffix.lower() in EXTENSOES)
         contagem[pasta_classe.name] = n
     return contagem
+
+def listar_imagens_e_rotulos():
+    """Lista os caminhos das imagens e cria os rótulos pelas subpastas."""
+    checar_dataset_baixado()
+
+    pastas_classes = sorted(
+        pasta for pasta in DATASET_DIR.iterdir() if pasta.is_dir()
+    )
+    class_names = [pasta.name for pasta in pastas_classes]
+
+    caminhos = []
+    rotulos = []
+
+    for indice, pasta_classe in enumerate(pastas_classes):
+        arquivos = sorted(
+            arquivo
+            for arquivo in pasta_classe.iterdir()
+            if arquivo.is_file() and arquivo.suffix.lower() in EXTENSOES
+        )
+        caminhos.extend(str(arquivo) for arquivo in arquivos)
+        rotulos.extend([indice] * len(arquivos))
+
+    return caminhos, rotulos, class_names
+
+
+def carregar_imagem(caminho, rotulo, img_size):
+    """Lê uma imagem, converte para RGB e redimensiona."""
+    conteudo = tf.io.read_file(caminho)
+    imagem = tf.io.decode_image(
+        conteudo,
+        channels=3,
+        expand_animations=False,
+    )
+    imagem.set_shape([None, None, 3])
+    imagem = tf.image.resize(imagem, img_size)
+    imagem = tf.cast(imagem, tf.float32)
+
+    return imagem, rotulo
+
+
+def criar_dataset(
+    caminhos,
+    rotulos,
+    img_size,
+    batch_size,
+    treino=False,
+    seed=SEED,
+):
+    """Cria um tf.data.Dataset a partir dos caminhos e rótulos."""
+    dataset = tf.data.Dataset.from_tensor_slices((caminhos, rotulos))
+
+    if treino:
+        dataset = dataset.shuffle(
+            buffer_size=len(caminhos),
+            seed=seed,
+            reshuffle_each_iteration=True,
+        )
+
+    dataset = dataset.map(
+        lambda caminho, rotulo: carregar_imagem(caminho, rotulo, img_size),
+        num_parallel_calls=tf.data.AUTOTUNE,
+    )
+
+    return dataset.batch(batch_size)
 
 
 def carregar_datasets(
     img_size=IMG_SIZE,
     batch_size=BATCH_SIZE,
-    validation_split=VALIDATION_SPLIT,
     seed=SEED,
 ):
     """
@@ -79,41 +142,54 @@ def carregar_datasets(
     cargo de `model.py`, para deixar claro no pipeline de treino o que é
     "carregar dado" (aqui) e o que é "preparar para o modelo" (lá).
     """
-    checar_dataset_baixado()
+    caminhos, rotulos, class_names = listar_imagens_e_rotulos()
 
-    treino = tf.keras.utils.image_dataset_from_directory(
-        DATASET_DIR,
-        validation_split=validation_split,
-        subset="training",
-        seed=seed,
-        image_size=img_size,
-        batch_size=batch_size,
-        label_mode="int",
+    caminhos_treino, caminhos_resto, rotulos_treino, rotulos_resto = (
+        train_test_split(
+            caminhos,
+            rotulos,
+            test_size=0.30,
+            random_state=seed,
+            stratify=rotulos,
+        )
     )
 
     # A parte "validation" do Keras aqui ainda tem 30% dos dados; dividimos
     # ela ao meio, por batch, para virar validação (15%) e teste (15%) —
     # o teste fica reservado e só deve ser usado uma vez, no final, para
     # reportar a métrica oficial no relatório.
-    resto = tf.keras.utils.image_dataset_from_directory(
-        DATASET_DIR,
-        validation_split=validation_split,
-        subset="validation",
-        seed=seed,
-        image_size=img_size,
-        batch_size=batch_size,
-        label_mode="int",
+    caminhos_validacao, caminhos_teste, rotulos_validacao, rotulos_teste = (
+        train_test_split(
+            caminhos_resto,
+            rotulos_resto,
+            test_size=0.50,
+            random_state=seed,
+            stratify=rotulos_resto,
+        )
     )
 
-    class_names = treino.class_names  # ordem alfabética das subpastas
-
-    n_batches_resto = tf.data.experimental.cardinality(resto).numpy()
-    metade = n_batches_resto // 2
-    validacao = resto.take(metade)
-    teste = resto.skip(metade)
+    treino = criar_dataset(
+        caminhos_treino,
+        rotulos_treino,
+        img_size,
+        batch_size,
+        treino=True,
+        seed=seed,
+    )
+    validacao = criar_dataset(
+        caminhos_validacao,
+        rotulos_validacao,
+        img_size,
+        batch_size,
+    )
+    teste = criar_dataset(
+        caminhos_teste,
+        rotulos_teste,
+        img_size,
+        batch_size,
+    )
 
     return treino, validacao, teste, class_names
-
 
 def main():
     contagem = contar_imagens_por_classe()
