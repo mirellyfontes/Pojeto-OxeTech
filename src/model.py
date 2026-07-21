@@ -86,10 +86,16 @@ def avaliar(modelo, ds_teste, class_names):
         y_pred.extend(np.argmax(probs, axis=1))
         y_true.extend(rotulos.numpy())
 
+    rotulos = list(range(len(class_names)))  # garante todas as classes no relatório,
+    # mesmo que alguma não apareça no conjunto de teste (dataset pequeno/desbalanceado)
+
     print("\n=== Relatório de classificação (conjunto de teste) ===")
-    print(classification_report(y_true, y_pred, target_names=class_names, digits=3))
+    print(classification_report(
+        y_true, y_pred, labels=rotulos, target_names=class_names,
+        digits=3, zero_division=0,
+    ))
     print("=== Matriz de confusão ===")
-    print(confusion_matrix(y_true, y_pred))
+    print(confusion_matrix(y_true, y_pred, labels=rotulos))
 
 
 def main():
