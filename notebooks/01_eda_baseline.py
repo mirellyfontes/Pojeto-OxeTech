@@ -7,7 +7,7 @@
 #
 # Antes de rodar: baixe o dataset do Kaggle e organize em `data/raw/dataset/<classe>/` (ver README).
 #
-# **Importante (VSCode):** no canto superior direito do notebook, selecione o kernel `Python 3` do `venv` do projeto (não um kernel de SQL ou de outra linguagem). Se o VSCode não oferecer o kernel Python, rode `pip install ipykernel` dentro do `venv` ativado e reabra o notebook.
+# Importante (VSCode): no canto superior direito do notebook, selecione o kernel `Python 3` do `venv` do projeto # (não um kernel de SQL ou de outra linguagem). Se o VSCode não oferecer o kernel Python, rode `pip install ipykernel` dentro do `venv` ativado e reabra o notebook.
 
 from pathlib import Path
 import sys
@@ -53,7 +53,7 @@ contagem = contar_imagens_por_classe()
 contagem
 
 plt.figure(figsize=(6,4))
-plt.bar(contagem.keys(), contagem.values())
+plt.bar(contagem.keys(), contagem.values()) # type: ignore
 plt.title("Imagens por classe")
 plt.ylabel("Quantidade")
 plt.xticks(rotation=20)
