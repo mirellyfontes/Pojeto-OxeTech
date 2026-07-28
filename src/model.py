@@ -18,13 +18,19 @@ Rodar depois de baixar o dataset em data/raw/dataset/ (ver src/load_data.py):
 """
 
 import json
+import sys
 from pathlib import Path
 
 import numpy as np
 import tensorflow as tf
 from sklearn.metrics import classification_report, confusion_matrix
 
-from src.load_data import carregar_datasets, IMG_SIZE
+# Adiciona a própria pasta (src/) ao sys.path, assim o script funciona tanto
+# rodando "python src/model.py" (como o README manda) quanto
+# "python -m src.model", sem depender de como o interpretador resolve o
+# pacote "src". Mesmo padrão usado em src/model_search.py.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from load_data import carregar_datasets, IMG_SIZE  # noqa: E402
 
 MODELS_DIR = Path(__file__).resolve().parent.parent / "api"
 
@@ -134,7 +140,7 @@ def avaliar(modelo, ds_teste, class_names):
     resultados = {
         "test_loss": float(perda),
         "test_accuracy": float(acuracia),
-        "test_f1_macro": float(relatorio["macro avg"]["f1-score"]),
+        "test_f1_macro": float(relatorio["macro avg"]["f1-score"]), # pyright: ignore[reportArgumentType]
         "classification_report": relatorio,
         "confusion_matrix": matriz.tolist(),
     }
