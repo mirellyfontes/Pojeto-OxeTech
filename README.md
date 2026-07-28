@@ -5,8 +5,7 @@ Instrutor: Prof. Me. Derek Nielsen Araújo Alves
 
 ## 1. Problema
 
-É possível classificar automaticamente uma imagem de fundo de retina entre
-**normal**, **catarata**, **glaucoma** ou **retinopatia diabética**, como
+É possível classificar automaticamente uma imagem de fundo de retina entre **normal**, **catarata**, **glaucoma** ou **retinopatia diabética**, como
 ferramenta de **apoio à triagem** — priorizando quem deveria ser encaminhado
 com mais urgência a um oftalmologista?
 
@@ -18,6 +17,11 @@ treinamos uma cabeça de classificação nova, depois fazemos fine-tuning das
 últimas camadas. Não treinamos uma CNN do zero: o dataset (~4.200 imagens) é
 pequeno demais para isso convergir bem no tempo disponível, e uma rede
 pré-treinada já traz um extrator de características genérico muito forte.
+
+Além do treino de um único modelo (`src/model.py`), o projeto também inclui
+uma busca de hiperparâmetros (`src/model_search.py`) que treina várias
+configurações diferentes, compara todas no conjunto de **validação** e só
+então escolhe a melhor para avaliar no teste — ver seção 3 e 4 abaixo.
 
 **Métrica principal:** Acurácia e F1-score (macro, por ser multiclasse) no
 conjunto de teste, além de matriz de confusão — importante em contexto
@@ -31,8 +35,8 @@ profissional**. Ver `docs/notas_eticas.md`.
 
 ## 2. Fonte de dados
 
-| Dataset | Status | Formato | Fonte |
-|---|---|---|---|
+| Dataset                                                                                                                                        | Status                      | Formato                       | Fonte                                                                                                                               |
+| ----------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------- | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
 | Eye Diseases Classification (retinal fundus images) — 4 classes (normal, cataract, glaucoma, diabetic_retinopathy), ~1.000 imagens por classe | ⏳ falta baixar (ver abaixo) | Pastas de imagens (.jpg/.png) | [Kaggle — gunavenkatdoddi/eye-diseases-classification](https://www.kaggle.com/datasets/gunavenkatdoddi/eye-diseases-classification) |
 
 O dataset já vem organizado em uma pasta por classe (o nome da pasta é o
@@ -44,11 +48,12 @@ a discussão de viés, ver `docs/notas_eticas.md`.
 ### Como baixar
 
 1. Baixe o dataset em
-   https://www.kaggle.com/datasets/gunavenkatdoddi/eye-diseases-classification
+   <https://www.kaggle.com/datasets/gunavenkatdoddi/eye-diseases-classification>
    (é preciso login no Kaggle; dá pra baixar pelo site ou via
    `kaggle datasets download -d gunavenkatdoddi/eye-diseases-classification`
    se tiverem a API do Kaggle configurada).
 2. Extraia o `.zip` e organizem as imagens em `data/raw/dataset/` assim:
+
    ```
    data/raw/dataset/
    ├── cataract/
@@ -56,9 +61,11 @@ a discussão de viés, ver `docs/notas_eticas.md`.
    ├── glaucoma/
    └── normal/
    ```
+
    (o dataset original do Kaggle já vem quase nesse formato — só confiram os
    nomes das pastas depois de extrair, alguns downloads vêm com uma pasta
    `dataset/` a mais dentro, é só mover o conteúdo um nível acima).
+
 3. Rode `python src/load_data.py` para conferir a contagem de imagens por
    classe e ver se os splits de treino/validação/teste estão sendo montados
    certo.
@@ -73,20 +80,27 @@ Pojeto OxeTech/
 ├── .gitignore
 ├── data/
 │   ├── raw/
-│   │   └── dataset/    # imagens baixadas do Kaggle (NÃO versionar no git)
-│   └── processed/      # eventuais artefatos derivados (ex: csv de contagem)
+│   │   └── dataset/                       # imagens baixadas do Kaggle (NÃO versionar no git)
+│   └── processed/                         # eventuais artefatos derivados (ex: csv de contagem)
+│       ├── model_search_resultados.csv    # tabela comparando as configurações testadas (gerado por model_search.py)
+│       └── experimentos/                  # um .keras por configuração testada (gerado por model_search.py)
 ├── notebooks/
 │   ├── 01_eda_baseline.ipynb    # análise exploratória (contagem por classe, exemplos)
 │   ├── 01_eda_baseline.py       # mesma EDA, em script Python puro (sem Jupyter)
 │   ├── 02_treino_modelo.ipynb   # treino interativo do modelo (MobileNetV2 + fine-tuning), com aviso de não-diagnóstico
 │   └── 02_treino_modelo.py      # mesmo treino, em script Python puro (sem Jupyter)
 ├── src/
-│   ├── load_data.py    # carrega as imagens em tf.data.Dataset (treino/val/teste)
-│   └── model.py         # transfer learning com MobileNetV2 + fine-tuning
+│   ├── load_data.py       # carrega as imagens em tf.data.Dataset (treino/val/teste)
+│   ├── model.py            # transfer learning com MobileNetV2 + fine-tuning (um único modelo)
+│   └── model_search.py     # busca de hiperparâmetros: treina várias configurações, compara na
+│                            # validação (F1-macro) e escolhe a melhor para avaliar no teste
 ├── tests/
 │   └── test_load_data.py   # testes automatizados do carregamento de dados (pytest)
 ├── api/
-│   ├── main.py          # API FastAPI (upload de imagem -> predição)
+│   ├── main.py                # API FastAPI (upload de imagem -> predição)
+│   ├── modelo_final.keras     # modelo escolhido (gerado por model.py ou model_search.py)
+│   ├── class_names.json       # nomes das classes, na ordem do modelo
+│   ├── metricas_teste.json    # métricas oficiais no conjunto de teste do modelo escolhido
 │   ├── Dockerfile
 │   └── requirements.txt
 └── docs/
@@ -96,7 +110,7 @@ Pojeto OxeTech/
 
 ## 4. Como rodar localmente (VSCode)
 
-```bash
+```
 # 1. Criar e ativar ambiente virtual
 python -m venv venv
 source venv/bin/activate      # Windows: venv\Scripts\activate
@@ -115,6 +129,14 @@ python src/model.py
 #   python notebooks/02_treino_modelo.py         (script .py, roda no terminal, sem Jupyter)
 #   notebooks/02_treino_modelo.ipynb no VSCode    (interativo, com gráficos e a
 #                                                   predição de exemplo célula a célula)
+#
+# OU, em vez do passo 5, rodar a busca de hiperparâmetros: treina várias
+# configurações (variando tamanho da cabeça, dropout, learning rate e
+# quantas camadas do MobileNetV2 são liberadas no fine-tuning), compara
+# todas na validação (F1-macro) e só então avalia a melhor no teste — grava
+# também no mesmo lugar que a API espera (api/modelo_final.keras + api/class_names.json),
+# além da tabela comparativa e um .keras por configuração:
+python src/model_search.py
 
 # 6. Rodar a API localmente
 uvicorn api.main:app --reload
@@ -124,14 +146,14 @@ uvicorn api.main:app --reload
 
 ### Rodar via Docker (API)
 
-```bash
+```
 docker build -f api/Dockerfile -t triagem-ocular-api .
 docker run -p 8000:8000 triagem-ocular-api
 ```
 
 ### Rodar os testes automatizados
 
-```bash
+```
 pytest tests/
 ```
 
@@ -144,14 +166,15 @@ O notebook (`notebooks/01_eda_baseline.ipynb`) é 100% Python — se o VSCode
 oferecer para criar/selecionar um kernel de **SQL** (ou qualquer coisa que não
 seja Python) ao abrir, é só trocar manualmente:
 
-1. Ative o `venv` do projeto (`source venv/bin/activate` ou `venv\Scripts\activate`)
-   e garanta que o `ipykernel` está instalado (`pip install -r requirements.txt`
-   já inclui isso).
+1. Ative o `venv` do projeto (`source venv/bin/activate` ou
+   `venv\Scripts\activate`) e garanta que o `ipykernel` está instalado
+   (`pip install -r requirements.txt` já inclui isso).
 2. No notebook aberto no VSCode, clique no seletor de kernel no canto superior
    direito e escolha o **Python 3 do `venv` do projeto**.
 3. Se o kernel Python não aparecer na lista, reinicie o VSCode depois de
-   instalar o `ipykernel`, ou rode `python -m ipykernel install --user
-   --name=triagem-ocular` dentro do `venv` ativado.
+   instalar o `ipykernel`, ou rode
+   `python -m ipykernel install --user --name=triagem-ocular` dentro do
+   `venv` ativado.
 
 ## 5. Autoria
 
