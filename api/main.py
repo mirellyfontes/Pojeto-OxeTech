@@ -14,13 +14,47 @@ Documentação automática (OpenAPI):
 
 import io
 import json
+import keras
+import inspect
 from pathlib import Path
 
 import numpy as np
 import tensorflow as tf
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, HTTPException, UploadFile # pyright: ignore[reportMissingImports]
 from PIL import Image
-from pydantic import BaseModel
+from pydantic import BaseModel # pyright: ignore[reportMissingImports]
+
+
+# ---------------------------------------------------------------------------
+# Compatibilidade entre versões do Keras
+# ---------------------------------------------------------------------------
+# O arquivo modelo_final.keras foi salvo com uma versão do Keras que inclui,
+# no get_config() de algumas classes (GlorotUniform, BatchNormalization,
+# Dense, Conv2D, entre outras), parâmetros que a versão atualmente instalada
+# não reconhece em seu __init__ (ex.: input_axes/output_axes,
+# quantization_config). Para não depender de acertar a versão exata do
+# Keras usada no treino, a função abaixo troca o __init__ dessas classes por
+# uma versão que descarta automaticamente qualquer kwarg desconhecido antes
+# de repassar para o __init__ original.
+def _permitir_kwargs_desconhecidos(classe):
+    original_init = classe.__init__
+    parametros_validos = set(inspect.signature(original_init).parameters.keys())
+
+    def novo_init(self, *args, **kwargs):
+        kwargs_limpos = {k: v for k, v in kwargs.items() if k in parametros_validos}
+        original_init(self, *args, **kwargs_limpos)
+
+    classe.__init__ = novo_init
+
+
+for _classe in [
+    keras.initializers.GlorotUniform,
+    keras.layers.BatchNormalization,
+    keras.layers.Dense,
+    keras.layers.Conv2D,
+]:
+    _permitir_kwargs_desconhecidos(_classe)
+
 
 MODEL_PATH = Path(__file__).resolve().parent / "modelo_final.keras"
 CLASSES_PATH = Path(__file__).resolve().parent / "class_names.json"
